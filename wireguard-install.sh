@@ -2,7 +2,7 @@
 
 function addClient() {
 	# Load params
-	source /etc/wireguard/params
+	source /etc/wireguard/CONFIG
 
 	if [[ $SERVER_PUB_IP =~ .*:.* ]]; then
 		echo "IPv6 Detected"
@@ -12,7 +12,7 @@ function addClient() {
 		ENDPOINT="$SERVER_PUB_IP:$SERVER_PORT"
 	fi
 
-	CLIENT_WG_IPV4="10.66.66.2"
+	CLIENT_WG_IPV4="10.0.0.2"
 	read -rp "Client's WireGuard IPv4 " -e -i "$CLIENT_WG_IPV4" CLIENT_WG_IPV4
 
 	CLIENT_WG_IPV6="fd42:42:42::2"
@@ -95,18 +95,10 @@ elif [[ -e /etc/wireguard ]]; then
 fi
 
 # Check OS version
-if [[ -e /etc/debian_version ]]; then
-	source /etc/os-release
-	OS=$ID # debian or ubuntu
-elif [[ -e /etc/fedora-release ]]; then
-	source /etc/os-release
-	OS=$ID
-elif [[ -e /etc/centos-release ]]; then
-	OS=centos
-elif [[ -e /etc/arch-release ]]; then
+if [[ -e /etc/arch-release ]]; then
 	OS=arch
 else
-	echo "Looks like you aren't running this installer on a Debian, Ubuntu, Fedora, CentOS or Arch Linux system"
+	echo "Looks like you aren't running this installer on Arch Linux system"
 	exit 1
 fi
 
@@ -121,7 +113,7 @@ read -rp "Public interface: " -e -i "$SERVER_PUB_NIC" SERVER_PUB_NIC
 SERVER_WG_NIC="wg0"
 read -rp "WireGuard interface name: " -e -i "$SERVER_WG_NIC" SERVER_WG_NIC
 
-SERVER_WG_IPV4="10.66.66.1"
+SERVER_WG_IPV4="10.0.0.1"
 read -rp "Server's WireGuard IPv4: " -e -i "$SERVER_WG_IPV4" SERVER_WG_IPV4
 
 SERVER_WG_IPV6="fd42:42:42::1"
@@ -132,37 +124,13 @@ SERVER_PORT=$(shuf -i49152-65535 -n1)
 read -rp "Server's WireGuard port: " -e -i "$SERVER_PORT" SERVER_PORT
 
 # Install WireGuard tools and module
-if [[ $OS == 'ubuntu' ]]; then
-	apt-get install -y software-properties-common
-	add-apt-repository -y ppa:wireguard/wireguard
-	apt-get update
-	apt-get install -y "linux-headers-$(uname -r)"
-	apt-get install -y wireguard iptables resolvconf qrencode
-elif [[ $OS == 'debian' ]]; then
-	echo "deb http://deb.debian.org/debian/ unstable main" >/etc/apt/sources.list.d/unstable.list
-	printf 'Package: *\nPin: release a=unstable\nPin-Priority: 90\n' >/etc/apt/preferences.d/limit-unstable
-	apt update
-	apt-get install -y "linux-headers-$(uname -r)"
-	apt-get install -y wireguard iptables resolvconf qrencode
-	apt-get install -y bc # mitigate https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=956869
-elif [[ $OS == 'fedora' ]]; then
-	if [[ $VERSION_ID -lt 32 ]]; then
-		dnf install -y dnf-plugins-core
-		dnf copr enable -y jdoss/wireguard
-		dnf install -y wireguard-dkms
-	fi
-	dnf install -y wireguard-tools iptables qrencode
-elif [[ $OS == 'centos' ]]; then
-	curl -Lo /etc/yum.repos.d/wireguard.repo https://copr.fedorainfracloud.org/coprs/jdoss/wireguard/repo/epel-7/jdoss-wireguard-epel-7.repo
-	yum -y install epel-release
-	yum -y install wireguard-dkms wireguard-tools iptables qrencode
-elif [[ $OS == 'arch' ]]; then
+if [[ $OS == 'arch' ]]; then
 	pacman -S --noconfirm linux-headers
-	pacman -S --noconfirm wireguard-tools iptables wireguard-arch qrencode
+	pacman -S --noconfirm wireguard-tools iptables qrencode
 fi
 
 # Make sure the directory exists (this does not seem the be the case on fedora)
-mkdir /etc/wireguard >/dev/null 2>&1
+mkdir /etc/wireguard > /dev/null 2>&1
 
 chmod 600 -R /etc/wireguard/
 
@@ -177,9 +145,9 @@ SERVER_WG_IPV4=$SERVER_WG_IPV4
 SERVER_WG_IPV6=$SERVER_WG_IPV6
 SERVER_PORT=$SERVER_PORT
 SERVER_PRIV_KEY=$SERVER_PRIV_KEY
-SERVER_PUB_KEY=$SERVER_PUB_KEY" >/etc/wireguard/params
+SERVER_PUB_KEY=$SERVER_PUB_KEY" > /etc/wireguard/CONFIG
 
-source /etc/wireguard/params
+source /etc/wireguard/CONFIG
 
 # Add server interface
 echo "[Interface]
@@ -199,7 +167,7 @@ fi
 
 # Enable routing on the server
 echo "net.ipv4.ip_forward = 1
-net.ipv6.conf.all.forwarding = 1" >/etc/sysctl.d/wg.conf
+net.ipv6.conf.all.forwarding = 1" > /etc/sysctl.d/wg.conf
 
 sysctl --system
 
@@ -209,18 +177,5 @@ systemctl enable "wg-quick@$SERVER_WG_NIC"
 # Check if WireGuard is running
 systemctl is-active --quiet "wg-quick@$SERVER_WG_NIC"
 WG_RUNNING=$?
-
-# Warn user about kernel version mismatch with headers
-if [[ $OS =~ (fedora|centos) ]] && [[ $WG_RUNNING -ne 0 ]]; then
-	echo -e "\nWARNING: WireGuard does not seem to be running."
-	echo "Due to kernel mismatch issues on $OS, WireGuard might work if your system is out of date."
-	echo "You can check if WireGuard is running with: systemctl status wg-quick@$SERVER_WG_NIC"
-	echo 'If you get something like "Cannot find device wg0", please run:'
-	if [[ $OS == 'fedora' ]]; then
-		echo "dnf update -y && reboot"
-	elif [[ $OS == 'centos' ]]; then
-		echo "yum update -y && reboot"
-	fi
-fi
 
 addClient
